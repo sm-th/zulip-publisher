@@ -40,6 +40,7 @@
               "PATH=/bin"
               "SSL_CERT_FILE=${guestPkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
               "GIT_SSL_CAINFO=${guestPkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "PYTHONUNBUFFERED=1"
             ];
             WorkingDir = "/tmp";
           };
@@ -99,6 +100,15 @@
               while IFS='=' read -r k _; do
                 case "$k" in PUBLISHER_*) envargs+=( -e "$k=''${!k}" );; esac
               done < <(env)
+              # Also forward PUBLISHER_* config from ./.env (plain KEY=value), so
+              # putting config in .env is enough -- no manual sourcing needed.
+              if [ -f .env ]; then
+                while IFS= read -r line; do
+                  case "$line" in
+                    PUBLISHER_*=*) envargs+=( -e "$line" );;
+                  esac
+                done < .env
+              fi
               # Ephemeral in-VM clone dirs unless the caller pinned them.
               printf '%s\n' "''${envargs[@]}" | grep -q 'PUBLISHER_SITE_CLONE_DIR=' \
                 || envargs+=( -e PUBLISHER_SITE_CLONE_DIR=/tmp/site )
