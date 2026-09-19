@@ -10,32 +10,46 @@ import tomllib
 from dataclasses import dataclass
 
 
+class ConfigError(RuntimeError):
+    pass
+
+
+# Placeholder values shipped in the example config; treated as "unset" so a
+# publish command fails early with a clear message instead of pushing nowhere.
+_PLACEHOLDERS = {
+    "git@github.com:you/your-site.git",
+    "git@github.com:you/telegram.git",
+    "https://example.com",
+    "",
+}
+
+
 @dataclass(frozen=True)
 class Config:
     # Zulip source
     zulip_url: str
     zulip_api_key: str
     zulip_api_username: str
-    zulip_stream: str           # stream name to publish from (e.g. "blog")
-    zulip_general_topic: str    # topic name to skip, case-insensitive (default "general")
-    publisher_bot_name: str     # bot display name used to identify own messages
+    zulip_stream: str
+    zulip_general_topic: str
+    publisher_bot_name: str
     # Preparation interface
     prepare_url: str
     prepare_token: str
     prepare_policy: str
-    prepare_format: str         # "text" or "markdown"
+    prepare_format: str
     # Website repo (git)
     site_repo_url: str
     site_clone_dir: str
     site_branch: str
-    site_posts_subdir: str      # where post folders live under the clone
+    site_posts_subdir: str
     site_url: str
     # Telegram repo (git)
     telegram_repo_url: str
     telegram_clone_dir: str
     telegram_branch: str
-    telegram_posts_subdir: str  # usually "posts"
-    telegram_username: str      # channel username for t.me links
+    telegram_posts_subdir: str
+    telegram_username: str
     # Image store (R2)
     r2_endpoint: str
     r2_bucket: str
@@ -53,11 +67,36 @@ class Config:
     # Behaviour
     author_timezone_fallback: str
     poll_interval: int
-    site_ready_timeout: int      # seconds to wait for site URL 200
-    site_ready_interval: int     # seconds between site URL checks
-    telegram_state_timeout: int  # seconds to wait for sibling state success
-    telegram_state_interval: int # seconds between state polls
+    site_ready_timeout: int
+    site_ready_interval: int
+    telegram_state_timeout: int
+    telegram_state_interval: int
     dry_run: bool
+
+    def validate_for_publish(self) -> None:
+        """Fail fast before a run that mutates Zulip/git/R2/Telegram.
+
+        Dry-run may proceed with placeholders (it prints, never pushes), but a real
+        publish needs a preparation endpoint and non-placeholder repositories.
+        """
+        if self.dry_run:
+            return
+        missing: list[str] = []
+        if not self.prepare_url:
+            missing.append("PREPARE_URL")
+        if not self.prepare_token:
+            missing.append("PREPARE_TOKEN")
+        if self.site_repo_url in _PLACEHOLDERS:
+            missing.append("site_repo_url (still the example placeholder)")
+        if self.telegram_repo_url in _PLACEHOLDERS:
+            missing.append("telegram_repo_url (still the example placeholder)")
+        if self.site_url in _PLACEHOLDERS:
+            missing.append("site_url (still the example placeholder)")
+        if missing:
+            raise ConfigError(
+                "cannot publish; missing/placeholder configuration: "
+                + ", ".join(missing)
+            )
 
 
 def _flag(name: str) -> bool:
@@ -74,7 +113,7 @@ def _load_toml(path: str) -> dict:
 def _req_env(name: str) -> str:
     v = os.environ.get(name)
     if not v:
-        raise SystemExit(f"Missing required env var: {name}")
+        raise ConfigError(f"Missing required env var: {name}")
     return v
 
 

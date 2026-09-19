@@ -12,11 +12,7 @@ from __future__ import annotations
 
 import sys
 
-from . import config, loop, publish, receipts, telegram, zulip
-from .git import GitRepo
-from .images import ImageStore
-from .models import Candidate
-from .prepare import PreparationClient
+from . import config, loop, zulip
 
 
 def _cmd_show(cfg: config.Config, source_id: str) -> int:
@@ -42,23 +38,38 @@ def _cmd_show(cfg: config.Config, source_id: str) -> int:
 
 def _cmd_publish(cfg: config.Config, source_id: str) -> int:
     lp = loop.Loop(cfg)
-    candidates = [c for c in lp.candidates() if c.note.source_key == source_id or str(c.note.message_id) == source_id]
+    candidates = [c for c in lp.candidates()
+                  if c.note.source_key == source_id or str(c.note.message_id) == source_id]
     if not candidates:
         print(f"candidate not found or already published: {source_id}", file=sys.stderr)
         return 1
-    candidate = candidates[0]
-    result = lp.orchestrator.process(candidate)
+    result = lp.orchestrator.process(candidates[0])
     print(result)
     return 0 if result.success else 1
 
 
 def main() -> int:
     argv = sys.argv[1:]
-    cfg = config.load()
+    # Help must never touch configuration or secrets.
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
+
     cmd = argv[0]
+    if cmd not in ("run", "once", "publish", "show"):
+        print(f"unknown command: {cmd}", file=sys.stderr)
+        return 2
+
+    try:
+        cfg = config.load()
+        # Commands that mutate state validate the publish configuration up front;
+        # `show` is a read-only preview and tolerates placeholder repos.
+        if cmd in ("run", "once", "publish"):
+            cfg.validate_for_publish()
+    except config.ConfigError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
     if cmd == "run":
         loop.Loop(cfg).run()
         return 0
@@ -70,13 +81,11 @@ def main() -> int:
             print("usage: publish <source-key-or-message-id>", file=sys.stderr)
             return 2
         return _cmd_publish(cfg, argv[1])
-    if cmd == "show":
-        if len(argv) < 2:
-            print("usage: show <source-key-or-message-id>", file=sys.stderr)
-            return 2
-        return _cmd_show(cfg, argv[1])
-    print(f"unknown command: {cmd}", file=sys.stderr)
-    return 2
+    # show
+    if len(argv) < 2:
+        print("usage: show <source-key-or-message-id>", file=sys.stderr)
+        return 2
+    return _cmd_show(cfg, argv[1])
 
 
 if __name__ == "__main__":

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import time
-from typing import Callable
 
 from . import publish, receipts, zulip
 from .config import Config
 from .git import GitRepo
 from .images import ImageStore
-from .models import Candidate, Receipt, SourceNote
+from .models import Candidate
 from .prepare import PreparationClient
 from .telegram import TelegramRepo, TelegramRepoConfig
 
@@ -26,7 +25,8 @@ class Loop:
         self.preparer = PreparationClient(cfg.prepare_url, cfg.prepare_token)
         self.site_repo = _site_repo(cfg)
         self.telegram_repo = _telegram_repo(cfg)
-        self.image_store = ImageStore.from_config(cfg)
+        # Private Zulip uploads need the bot's credentials to download.
+        self.image_store = ImageStore.from_config(cfg, fetch=self.zulip_client.download)
         self.receipt_store = receipts.ReceiptStore(
             cfg.site_clone_dir, cfg.site_posts_subdir, cfg.site_url)
         self.orchestrator = publish.Orchestrator(
@@ -42,10 +42,14 @@ class Loop:
         return self._stream_id_cache
 
     def candidates(self) -> list[Candidate]:
-        """Return un-published Source Notes oldest-first."""
+        """Un-published Source Notes, oldest-first by Source Note timestamp.
+
+        A note is a candidate unless it already carries the Published Marker: an
+        incomplete receipt resumes, and a complete-but-unmarked receipt is included
+        so the orchestrator can reconcile its markers.
+        """
         stream_id = self._get_stream_id()
         topics = self.zulip_client.get_topics(stream_id)
-        recs = self.receipt_store.scan()
         out: list[Candidate] = []
         for topic in topics:
             name = topic.get("name", "")
@@ -59,13 +63,10 @@ class Loop:
             note = zulip.to_source_note(stream_id, name, msg)
             if publish.PUBLISHED_EMOJI in note.reactions:
                 continue
-            if note.source_key in recs and recs[note.source_key].is_complete:
-                continue
-            source_url = self.zulip_client.source_url(
-                stream_id, name, note.message_id)
+            source_url = self.zulip_client.source_url(stream_id, name, note.message_id)
             tz = self.zulip_client.user_timezone(email=note.author_email)
-            out.append(Candidate(note=note, source_url=source_url,
-                                 author_timezone=tz))
+            out.append(Candidate(note=note, source_url=source_url, author_timezone=tz))
+        out.sort(key=lambda c: c.note.timestamp)
         return out
 
     def run_once(self) -> None:
@@ -93,23 +94,26 @@ class Loop:
         self.run_once()
         if self.cfg.dry_run:
             return
-        queue = self.zulip_client.register_event_queue(
-            event_types=["message", "reaction"],
-            narrow=[["stream", self.cfg.zulip_stream]],
-        )
-        queue_id = queue["queue_id"]
-        last_event_id = queue["last_event_id"]
-        log("entering event queue")
         while True:
             try:
-                events, last_event_id = self.zulip_client.get_events(
-                    queue_id, last_event_id)
-                if events:
+                queue = self.zulip_client.register_event_queue(
+                    event_types=["message", "reaction"],
+                    narrow=[["stream", self.cfg.zulip_stream]],
+                )
+                queue_id = queue["queue_id"]
+                last_event_id = queue["last_event_id"]
+                log("entering event queue")
+                while True:
+                    # Block for events, but re-scan the backlog every cycle so a
+                    # held or crashed candidate is retried even without a new event.
+                    _, last_event_id = self.zulip_client.get_events(queue_id, last_event_id)
                     self.run_once()
+                    time.sleep(self.cfg.poll_interval)
             except Exception as e:
-                log(f"event queue error: {e}")
+                # An invalid/expired queue or any transient error: re-register and
+                # keep going rather than exit the process.
+                log(f"event queue error, re-registering: {e}")
                 time.sleep(self.cfg.poll_interval)
-            time.sleep(self.cfg.poll_interval)
 
 
 def _site_repo(cfg: Config) -> GitRepo:
