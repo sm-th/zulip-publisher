@@ -15,7 +15,7 @@
         pyproject = true;
         src = ./.;
         nativeBuildInputs = [ pkgs.python3.pkgs.setuptools ];
-        propagatedBuildInputs = [ pkgs.python3.pkgs.boto3 pkgs.python3.pkgs.pillow ];
+        propagatedBuildInputs = [ pkgs.python3.pkgs.boto3 pkgs.python3.pkgs.pillow pkgs.python3.pkgs.zulip pkgs.python3.pkgs.requests ];
         doCheck = false;
       };
 
@@ -134,7 +134,7 @@
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [
-            (pkgs.python3.withPackages (ps: [ ps.boto3 ps.pillow ps.pytest ]))
+            (pkgs.python3.withPackages (ps: [ ps.boto3 ps.pillow ps.pytest ps.zulip ps.requests ]))
             pkgs.git pkgs.jq pkgs.secretspec
           ];
           shellHook = ''
@@ -150,7 +150,7 @@
           name = "zulip-publisher-check";
           src = ./.;
           nativeBuildInputs = [
-            (pkgs.python3.withPackages (ps: [ ps.boto3 ps.pillow ps.pytest ]))
+            (pkgs.python3.withPackages (ps: [ ps.boto3 ps.pillow ps.pytest ps.zulip ps.requests ]))
             pkgs.git
           ];
           buildPhase = "python -m pytest";
