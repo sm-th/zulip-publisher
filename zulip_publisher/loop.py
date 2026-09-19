@@ -103,12 +103,15 @@ class Loop:
                 queue_id = queue["queue_id"]
                 last_event_id = queue["last_event_id"]
                 log("entering event queue")
+                last_scan = time.monotonic()
                 while True:
-                    # Block for events, but re-scan the backlog every cycle so a
-                    # held or crashed candidate is retried even without a new event.
-                    _, last_event_id = self.zulip_client.get_events(queue_id, last_event_id)
-                    self.run_once()
-                    time.sleep(self.cfg.poll_interval)
+                    # The event queue long-polls: this returns the moment a
+                    # message/reaction arrives. Process events immediately; re-scan
+                    # the backlog only every poll_interval so held candidates retry.
+                    events, last_event_id = self.zulip_client.get_events(queue_id, last_event_id)
+                    if events or (time.monotonic() - last_scan) >= self.cfg.poll_interval:
+                        self.run_once()
+                        last_scan = time.monotonic()
             except Exception as e:
                 # An invalid/expired queue or any transient error: re-register and
                 # keep going rather than exit the process.
