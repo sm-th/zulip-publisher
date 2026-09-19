@@ -115,7 +115,10 @@
               printf '%s\n' "''${envargs[@]}" | grep -q 'PUBLISHER_TELEGRAM_CLONE_DIR=' \
                 || envargs+=( -e PUBLISHER_TELEGRAM_CLONE_DIR=/tmp/telegram )
 
-              exec "$msb" run --no-tty "''${envargs[@]}" \
+              # Long-running `run` needs a PTY or msb buffers guest stdout until
+              # exit; fall back to --no-tty when not attached to a terminal.
+              tty=(--no-tty); [ -t 1 ] && tty=(-t)
+              exec "$msb" run "''${tty[@]}" "''${envargs[@]}" \
                 zulip-publisher:latest -- "''${@:-once}"
             '';
           };
