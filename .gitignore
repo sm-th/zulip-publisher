@@ -23,3 +23,8 @@ dist/
 .direnv/
 result
 result-*
+
+# Machine-specific launch/deploy scripts
+run-publisher.sh
+scripts/deploy.sh
+DEPLOY.md

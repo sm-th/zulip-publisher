@@ -58,8 +58,12 @@ class GitRepo:
         return proc
 
     def _configure(self) -> None:
-        self._git("config", "user.name", self.cfg.git_user_name)
-        self._git("config", "user.email", self.cfg.git_user_email)
+        # Identity, signing, and SSH are environment concerns: only override the
+        # ambient git config when the operator has explicitly supplied a value.
+        if self.cfg.git_user_name:
+            self._git("config", "user.name", self.cfg.git_user_name)
+        if self.cfg.git_user_email:
+            self._git("config", "user.email", self.cfg.git_user_email)
         if self.cfg.git_sign and self.cfg.git_signing_key:
             self._git("config", "commit.gpgsign", "true")
             self._git("config", "gpg.format", "ssh")
