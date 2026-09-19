@@ -53,7 +53,7 @@ class Zulip:
             raise ZulipError(f"{method} {path} -> HTTP {e.code}: {detail}") from None
 
     def get_stream_id(self, stream_name: str) -> int:
-        data = self._request("GET", f"/json/streams/{stream_name}")
+        data = self._request("GET", "/json/get_stream_id?" + urllib.parse.urlencode({"stream": stream_name}))
         return data["stream_id"]
 
     def get_topics(self, stream_id: int) -> list[dict]:
