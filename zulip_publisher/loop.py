@@ -145,4 +145,5 @@ def cfg_to_git_cfg(cfg: Config, repo_url: str, clone_dir: str, branch: str):
         git_sign=cfg.git_sign,
         git_signing_key=cfg.git_signing_key,
         allowed_signers=cfg.allowed_signers,
+        push_token=cfg.push_token,
     )

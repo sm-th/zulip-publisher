@@ -1,6 +1,6 @@
 """Telegram artifact writer and sibling-state reader.
 
-Artifact schema follows https://github.com/andysmith-ai/telegram main. The
+Artifact schema follows the companion Telegram publisher repo. The
 Telegram repo's CI publishes on push under `posts/**`, then writes a sibling
 `<slug>.state.json` and pushes it back. The publisher therefore MUST NOT mark its
 artifact commit `[skip ci]` (that would suppress the very workflow it waits on),

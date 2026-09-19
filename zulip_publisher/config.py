@@ -64,6 +64,7 @@ class Config:
     git_sign: bool
     git_signing_key: str
     allowed_signers: str
+    push_token: str          # GitHub PAT for HTTPS push (isolated runs); optional
     # Behaviour
     author_timezone_fallback: str
     poll_interval: int
@@ -167,6 +168,7 @@ def load() -> Config:
         git_sign=bool(doc.get("git_sign", False)),
         git_signing_key=_expand(os.environ.get("PUBLISHER_GIT_SIGNING_KEY", doc.get("git_signing_key", ""))),
         allowed_signers=_expand(os.environ.get("PUBLISHER_ALLOWED_SIGNERS", doc.get("allowed_signers", ""))),
+        push_token=os.environ.get("PUSH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""),
         author_timezone_fallback=os.environ.get("PUBLISHER_AUTHOR_TZ_FALLBACK", doc.get("author_timezone_fallback", "America/Los_Angeles")),
         poll_interval=int(os.environ.get("PUBLISHER_POLL_INTERVAL", doc.get("poll_interval", 60))),
         site_ready_timeout=int(os.environ.get("PUBLISHER_SITE_READY_TIMEOUT", doc.get("site_ready_timeout", 300))),

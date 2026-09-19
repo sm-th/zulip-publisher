@@ -55,6 +55,7 @@ def cfg(tmp_path):
         git_sign=False,
         git_signing_key="",
         allowed_signers="",
+        push_token="",
         author_timezone_fallback="America/Los_Angeles",
         poll_interval=1,
         site_ready_timeout=1,

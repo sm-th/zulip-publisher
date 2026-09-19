@@ -2,8 +2,7 @@
 
 Zulip message bodies are Markdown, so images arrive as `![alt](/user_uploads/...)`
 or occasionally as raw `<img src=...>`. Each Zulip-hosted image is minted into
-three content-addressed R2 renditions -- reusing the proven scheme of
-~/reference/11ty-publisher/eleventy_publisher/imagekit.py:
+three content-addressed R2 renditions using a proven scheme:
 
     <prefix>/<sha1>/<name>.webp   compressed, transparent  -> inline on the page
     <prefix>/<sha1>/<name>.png    full-res,  transparent   -> opened by the lightbox

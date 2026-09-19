@@ -26,19 +26,14 @@ See [CONTEXT.md](CONTEXT.md).
 
 ## Reference repositories
 
-Treat these as read-only behaviour references. Read the listed file before
-changing the corresponding local behaviour:
+Companion publishers exist as read-only behaviour references (kept outside this
+repo). Match their proven behaviour when changing the corresponding area:
 
-- `~/reference/11ty-publisher/eleventy_publisher/render.py`: site
-  frontmatter, slugs, date handling, link-post detection.
-- `~/reference/11ty-publisher/eleventy_publisher/images.py` and
-  `imagekit.py`: content-addressed R2 image renditions.
-- `~/reference/11ty-publisher/eleventy_publisher/gitrepo.py`:
-  persistent clone, sync, signed commit, push.
-- `~/reference/11ty-publisher/eleventy_publisher/__main__.py`: CLI
-  shape (`run`, `once`, `publish`, `show`, dry-run).
-- `https://github.com/andysmith-ai/telegram/main/publish/publish.py` and
-  `richmessage.py`: Telegram artifact schema and Rich Post payload shape.
+- website rendering: frontmatter, slugs, date handling, link-post detection.
+- images: content-addressed R2 image renditions (webp/png/jpg).
+- git: persistent clone, sync, signed commit, push.
+- CLI shape: `run`, `once`, `publish`, `show`, dry-run.
+- Telegram: artifact schema and Rich Post payload shape.
 
 ## Pipeline invariants
 

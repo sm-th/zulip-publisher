@@ -1,6 +1,6 @@
 """Turn a prepared document into a website edition.
 
-Reuses the proven behaviour of ~/reference/11ty-publisher/eleventy_publisher/render.py.
+Reuses a proven website-rendering approach (frontmatter, slug, date, link posts).
 
 The website post frontmatter is deliberately minimal: `title`, `type`, an
 optional `link` for link posts, and the author-local `date` (an offset-bearing
