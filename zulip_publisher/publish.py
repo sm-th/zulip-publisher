@@ -15,7 +15,7 @@ from .prepare import PreparationClient
 from .receipts import LinkTarget
 
 
-WORKING_EMOJI = "hourglass_flowing_sand"   # ⏳ (work in progress)
+WORKING_EMOJI = "hourglass"                # ⌛ work in progress (realm-standard name)
 PUBLISHED_EMOJI = "loudspeaker"            # 📢 (both editions public)
 PROGRESS_MARKER = "<!-- zulip-publisher:progress -->"
 
