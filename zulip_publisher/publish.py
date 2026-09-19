@@ -207,7 +207,7 @@ class Orchestrator:
         year, mon, day = render.date_parts(date_iso)
         slug = render.slugify(title)
 
-        if self.image_store:
+        if self.image_store and not self.cfg.dry_run:
             body, _ = self.image_store.rewrite_for_website(body, slug)
 
         body = render.strip_title_heading(body, title)
@@ -259,7 +259,7 @@ class Orchestrator:
         images.assert_no_private_attachments(body)
 
         image_url: str | None = None
-        if self.image_store:
+        if self.image_store and not self.cfg.dry_run:
             body, refs = self.image_store.rewrite_for_telegram(body, slug)
             if refs:
                 image_url = refs[0].url
