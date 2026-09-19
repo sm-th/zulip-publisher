@@ -140,20 +140,16 @@ class FakePreparer(PreparationClient):
 
 class FakeImageStore(ImageStore):
     def __init__(self):
-        self.uploaded: list[tuple[str, str, str]] = []
-        self.public_urls: dict[str, str] = {}
+        self.website_calls: list[tuple[str, str]] = []
+        self.telegram_calls: list[tuple[str, str]] = []
 
-    def upload(self, url: str, slug: str, alt: str = "") -> str:
-        self.uploaded.append((url, slug, alt))
-        return self.public_urls.get(url, f"https://img.example.com/{slug}/{alt}.png")
-
-    def rewrite_body(self, body: str, slug: str, warn=None):
-        # Leave the body unchanged in tests unless configured.
-        from zulip_publisher.images import ImageRef
+    def rewrite_for_website(self, body: str, slug: str, warn=None):
+        self.website_calls.append((body, slug))
         return body, []
 
-    def block_attachments(self, body: str, warn=None):
-        return body
+    def rewrite_for_telegram(self, body: str, slug: str, warn=None):
+        self.telegram_calls.append((body, slug))
+        return body, []
 
 
 class FakeGitRepo(GitRepo):
@@ -263,7 +259,8 @@ def orchestrator(cfg, fake_zulip, fake_preparer, site_git, telegram_repo,
 @pytest.fixture(autouse=True)
 def mock_url_ready(monkeypatch):
     """Site readiness checks are network-bound; tests fake them as immediate success."""
-    monkeypatch.setattr("zulip_publisher.telegram.check_url_ready", lambda url, timeout=30: True)
+    monkeypatch.setattr("zulip_publisher.telegram.check_url_ready",
+                        lambda url, timeout=30, interval=5: True)
 
 
 @pytest.fixture

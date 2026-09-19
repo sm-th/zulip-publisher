@@ -47,18 +47,30 @@ def test_date_parts_and_slug():
     assert render.slugify("Hello World!") == "hello-world"
 
 
-def test_build_post_contains_source_and_telegram():
-    fm = {"title": "Title", "description": None, "tags": ["one", "two"]}
+def test_build_post_minimal_public_frontmatter():
     post = render.build_post(
-        fm, "Body.", "2026-09-19T14:30:00+02:00",
-        link="https://example.com",
-        source_key="zulip:1:2",
-        telegram_url="https://t.me/c/3",
+        {"title": "Title"}, "Body.", "2026-09-19T14:30:00+02:00",
+        post_type="link", link="https://example.com",
     )
-    assert "source: zulip:1:2" in post
-    assert "telegram_url: https://t.me/c/3" in post
-    assert 'link: https://example.com' in post
+    assert "title: Title" in post
+    assert "type: link" in post
+    assert "link: https://example.com" in post
+    assert "date: 2026-09-19T14:30:00+02:00" in post
+    # Bookkeeping and generated metadata never appear in the public post.
+    assert "source:" not in post
+    assert "telegram_url:" not in post
+    assert "description:" not in post
+    assert "tags:" not in post
+
+
+def test_build_post_defaults_to_post_type():
+    post = render.build_post({"title": "T"}, "B", "2026-09-19T14:30:00+02:00")
     assert "type: post" in post
+
+
+def test_link_post_requires_link():
+    with pytest.raises(RenderError):
+        render.build_post({"title": "T"}, "B", "2026-09-19T14:30:00+02:00", post_type="link")
 
 
 def test_strip_duplicate_title_heading():

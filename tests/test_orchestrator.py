@@ -43,8 +43,11 @@ def test_full_publication_writes_site_and_telegram(orchestrator, fake_zulip,
     # Site post written and contains source key.
     assert any("src/2026/Sep/19/prepared-title/index.md" in paths for _, paths in site_git.commits)
     post = site_git.files["src/2026/Sep/19/prepared-title/index.md"]
-    assert "source: zulip:1:42" in post
-    assert "telegram_url: https://t.me/channel/100" in post
+    assert "type: post" in post
+    assert "source:" not in post
+    assert "telegram_url:" not in post
+    # Receipt is a durable JSON committed alongside the post, not post frontmatter.
+    assert any(".zulip-publisher/receipts/zulip_1_42.json" in paths for _, paths in site_git.commits)
 
     # Telegram artifact written.
     assert any("posts/2026-09-19-prepared-title.md" in paths for _, paths in telegram_repo.git.commits)
@@ -77,12 +80,8 @@ def test_single_progress_message_recovery(orchestrator, fake_zulip, fake_prepare
 def test_partial_site_resume_skips_reprepare_website(orchestrator, fake_zulip,
                                                      fake_preparer, site_git,
                                                      telegram_repo, receipt_store):
-    # Simulate existing website post without telegram_url.
-    post = render.build_post(
-        {"title": "Existing", "description": None, "tags": []},
-        "Body.", "2026-09-19T14:00:00+02:00",
-        source_key="zulip:1:42",
-    )
+    # Simulate an existing website post (its receipt is set below).
+    post = render.build_post({"title": "Existing"}, "Body.", "2026-09-19T14:00:00+02:00")
     site_git.files["src/2026/Sep/19/existing/index.md"] = post
     receipt_store.receipts["zulip:1:42"] = Receipt(
         source_key="zulip:1:42", slug="existing", date_iso="2026-09-19T14:00:00+02:00",
@@ -129,13 +128,7 @@ def test_private_link_blocks_until_target_published(orchestrator, fake_preparer)
 
 def test_private_link_rewritten_per_destination(orchestrator, fake_preparer, site_git,
                                                 telegram_repo, receipt_store):
-    # Target is fully published.
-    target_post = render.build_post(
-        {"title": "Target", "description": None, "tags": []},
-        "Body.", "2026-09-18T14:00:00+02:00",
-        source_key="zulip:1:99",
-    )
-    site_git.files["src/2026/Sep/18/target/index.md"] = target_post
+    # Target is fully published; its receipt carries both public URLs.
     receipt_store.receipts["zulip:1:99"] = Receipt(
         source_key="zulip:1:99", slug="target", date_iso="2026-09-18T14:00:00+02:00",
         website_url="https://site.example.com/2026/Sep/18/target/",
