@@ -1,14 +1,19 @@
-"""Zulip REST/event adapter."""
+"""Zulip adapter built on the official Zulip Python SDK.
+
+Wraps `zulip.Client` so the rest of the publisher never sees HTTP, auth, or
+event-queue details. Authentication, narrows, and the event queue are handled by
+the SDK; only `/user_uploads` binary downloads use an authenticated `requests`
+call (the SDK has no binary-download helper).
+"""
 
 from __future__ import annotations
 
-import base64
-import json
-import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any
+
+import requests
+import zulip
 
 from .models import SourceNote, ZulipMessage
 
@@ -18,96 +23,69 @@ class ZulipError(RuntimeError):
 
 
 class Zulip:
-    """Minimal Zulip client for the Publisher's needs."""
+    """Minimal Zulip client for the Publisher's needs, backed by the SDK."""
 
     def __init__(self, url: str, api_key: str, api_username: str):
         self.url = url.rstrip("/")
         self.api_username = api_username
         self.api_key = api_key
-        self._opener = self._build_opener()
+        self._client_obj: "zulip.Client | None" = None
 
-    def _build_opener(self):
-        password_mgr = urllib.request.HTTPPasswordMgrWithPriorAuth()
-        password_mgr.add_password(None, self.url, self.api_username, self.api_key)
-        handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
-        return urllib.request.build_opener(handler)
+    @property
+    def _client(self) -> "zulip.Client":
+        # Lazy: constructing the SDK client performs a network call, so defer it
+        # until first use (tests swap in a fake before any real call).
+        if self._client_obj is None:
+            self._client_obj = zulip.Client(
+                email=self.api_username, api_key=self.api_key, site=self.url)
+        return self._client_obj
 
-    def _request(self, method: str, path: str, data: dict | None = None,
-                 headers: dict | None = None) -> dict:
-        url = f"{self.url}{path}"
-        body = None
-        if data is not None:
-            body = urllib.parse.urlencode(data, doseq=True).encode("utf-8")
-        req = urllib.request.Request(url, data=body, method=method)
-        req.add_header("User-Agent", "zulip-publisher/0.1.0")
-        if body is not None:
-            req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        if headers:
-            for k, v in headers.items():
-                req.add_header(k, v)
-        try:
-            with self._opener.open(req, timeout=60) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", errors="replace")[:500]
-            raise ZulipError(f"{method} {path} -> HTTP {e.code}: {detail}") from None
+    def _ok(self, resp: dict) -> dict:
+        if resp.get("result") != "success":
+            raise ZulipError(resp.get("msg") or str(resp))
+        return resp
 
     def get_stream_id(self, stream_name: str) -> int:
-        data = self._request("GET", "/json/get_stream_id?" + urllib.parse.urlencode({"stream": stream_name}))
-        return data["stream_id"]
+        return self._ok(self._client.get_stream_id(stream_name))["stream_id"]
 
     def get_topics(self, stream_id: int) -> list[dict]:
-        """Return topics newest-first; caller reverses for oldest-first."""
-        out: list[dict] = []
-        anchor = None
-        while True:
-            params: dict[str, Any] = {}
-            if anchor is not None:
-                params["anchor"] = anchor
-            data = self._request("GET", f"/json/users/me/{stream_id}/topics?{urllib.parse.urlencode(params)}")
-            topics = data.get("topics") or []
-            if not topics:
-                break
-            out.extend(topics)
-            anchor = topics[-1].get("max_id")
-            if not data.get("more_topics", False):
-                break
-        return list(reversed(out))
+        return self._ok(self._client.get_stream_topics(stream_id)).get("topics", [])
 
     def get_messages(self, stream_id: int, topic_name: str, anchor: str = "oldest",
                      num_before: int = 0, num_after: int = 100) -> list[ZulipMessage]:
-        narrow = [
-            {"operator": "stream", "operand": stream_id},
-            {"operator": "topic", "operand": topic_name},
-        ]
-        data = self._request("GET", "/json/messages?" + urllib.parse.urlencode({
+        resp = self._ok(self._client.get_messages({
             "anchor": anchor,
             "num_before": num_before,
             "num_after": num_after,
-            "narrow": json.dumps(narrow),
-            "apply_markdown": "false",
+            "narrow": [
+                {"operator": "stream", "operand": stream_id},
+                {"operator": "topic", "operand": topic_name},
+            ],
+            "apply_markdown": False,
         }))
-        return data.get("messages") or []
+        return resp.get("messages", [])
 
     def first_message(self, stream_id: int, topic_name: str) -> ZulipMessage | None:
         msgs = self.get_messages(stream_id, topic_name, anchor="oldest", num_after=1)
         return msgs[0] if msgs else None
 
     def get_message(self, message_id: int) -> ZulipMessage | None:
-        data = self._request("GET", f"/json/messages/{message_id}?apply_markdown=false")
-        return data.get("message")
+        resp = self._ok(self._client.get_messages({
+            "anchor": message_id,
+            "num_before": 0,
+            "num_after": 0,
+            "narrow": [{"operator": "id", "operand": message_id}],
+            "apply_markdown": False,
+        }))
+        msgs = resp.get("messages", [])
+        return msgs[0] if msgs else None
 
     def source_url(self, stream_id: int, topic_name: str, message_id: int) -> str:
         return (f"{self.url}/#narrow/channel/{stream_id}-"
                 f"{urllib.parse.quote(topic_name, safe='')}/near/{message_id}")
 
     def source_key_for_message(self, message_id: int) -> str | None:
-        """Map any message id (possibly a reply) to its topic's Source Note key.
-
-        Internal Note Links use a `near/<id>` that may target a reply. The Source
-        Note is the FIRST message of that message's topic, so resolve the message
-        to its stream/topic, then to that topic's first message.
-        """
+        """Map any message id (possibly a reply) to its topic's Source Note key."""
         msg = self.get_message(message_id)
         if not msg:
             return None
@@ -121,83 +99,68 @@ class Zulip:
         return f"zulip:{stream_id}:{first['id']}"
 
     def user_timezone(self, user_id: int | None = None, email: str | None = None) -> str | None:
-        """Return the user's IANA timezone, or None."""
-        if user_id is not None:
-            data = self._request("GET", f"/json/users/{user_id}")
-        elif email is not None:
-            data = self._request("GET", f"/json/users/{urllib.parse.quote(email)}")
+        if email is not None:
+            resp = self._client.call_endpoint(f"users/{urllib.parse.quote(email)}", method="GET")
+        elif user_id is not None:
+            resp = self._client.call_endpoint(f"users/{user_id}", method="GET")
         else:
             return None
-        user = data.get("user") or {}
-        return user.get("timezone") or None
+        if resp.get("result") != "success":
+            return None
+        return (resp.get("user") or {}).get("timezone") or None
 
     def download(self, url: str) -> bytes:
-        """Download a (possibly private) upload, authenticating same-host fetches.
-
-        Zulip `/user_uploads/` URLs are private: a relative path is joined to the
-        realm host and same-host requests carry the bot's Basic credentials so
-        private images/attachments can be read. Cross-host URLs are fetched
-        anonymously.
-        """
+        """Download a (possibly private) upload, authenticating same-host fetches."""
         if url.startswith("/"):
             url = f"{self.url}{url}"
-        req = urllib.request.Request(url)
-        req.add_header("User-Agent", "zulip-publisher/0.1.0")
+        auth = None
         if urllib.parse.urlsplit(url).netloc == urllib.parse.urlsplit(self.url).netloc:
-            token = base64.b64encode(
-                f"{self.api_username}:{self.api_key}".encode("utf-8")).decode("ascii")
-            req.add_header("Authorization", f"Basic {token}")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                return resp.read()
-        except urllib.error.HTTPError as e:
-            raise ZulipError(f"download {url} -> HTTP {e.code}") from None
+            auth = (self.api_username, self.api_key)
+        resp = requests.get(url, auth=auth, timeout=60,
+                            headers={"User-Agent": "zulip-publisher/0.1.0"})
+        if resp.status_code != 200:
+            raise ZulipError(f"download {url} -> HTTP {resp.status_code}")
+        return resp.content
 
     def add_reaction(self, message_id: int, emoji: str) -> None:
-        self._request("POST", f"/json/messages/{message_id}/reactions",
-                      {"emoji_name": emoji})
+        self._ok(self._client.add_reaction({"message_id": message_id, "emoji_name": emoji}))
 
     def remove_reaction(self, message_id: int, emoji: str) -> None:
-        self._request("DELETE", f"/json/messages/{message_id}/reactions?emoji_name={urllib.parse.quote(emoji)}")
+        self._ok(self._client.remove_reaction({"message_id": message_id, "emoji_name": emoji}))
 
     def send_message(self, stream_id: int, topic_name: str, content: str) -> int:
-        data = self._request("POST", "/json/messages", {
+        resp = self._ok(self._client.send_message({
             "type": "stream",
-            "to": str(stream_id),
+            "to": stream_id,
             "topic": topic_name,
             "content": content,
-        })
-        return data["id"]
+        }))
+        return resp["id"]
 
     def edit_message(self, message_id: int, content: str) -> None:
-        self._request("PATCH", f"/json/messages/{message_id}", {"content": content})
+        self._ok(self._client.update_message({"message_id": message_id, "content": content}))
 
     def delete_message(self, message_id: int) -> None:
-        self._request("DELETE", f"/json/messages/{message_id}")
+        self._ok(self._client.call_endpoint(f"messages/{message_id}", method="DELETE"))
 
     def message_reactions(self, message_id: int) -> list[str]:
-        data = self._request("GET", f"/json/messages/{message_id}")
-        msg = data.get("message") or {}
+        msg = self.get_message(message_id) or {}
         return [r.get("emoji_name") for r in msg.get("reactions", []) if r.get("emoji_name")]
 
     def register_event_queue(self, event_types: list[str] | None = None,
                              narrow: list[list[str]] | None = None) -> dict:
-        payload = {}
-        if event_types:
-            payload["event_types"] = json.dumps(event_types)
-        if narrow:
-            payload["narrow"] = json.dumps(narrow)
-        return self._request("POST", "/json/register", payload)
+        return self._ok(self._client.register(event_types=event_types, narrow=narrow))
 
     def get_events(self, queue_id: str, last_event_id: int) -> tuple[list[dict], int]:
-        data = self._request("GET", "/json/events?" + urllib.parse.urlencode({
-            "queue_id": queue_id,
-            "last_event_id": last_event_id,
-            "dont_block": "false",
-            "timeout": "60",
-        }))
-        events = data.get("events") or []
-        new_last = data.get("last_event_id", last_event_id)
+        resp = self._client.get_events(
+            queue_id=queue_id, last_event_id=last_event_id, dont_block=False)
+        if resp.get("result") != "success":
+            raise ZulipError(resp.get("msg") or str(resp))
+        events = resp.get("events") or []
+        new_last = last_event_id
+        for e in events:
+            if isinstance(e.get("id"), int):
+                new_last = max(new_last, e["id"])
         return events, new_last
 
 
@@ -230,10 +193,11 @@ def topic_is_general(topic_name: str, general_name: str) -> bool:
 
 
 def topic_is_resolved(topic_name: str) -> bool:
-    """A resolved Zulip topic is prefixed with the check mark Zulip inserts.
-
-    Zulip's "Resolve topic" prepends U+2714 (`✔ `); older/manual conventions use
-    U+2713 (`✓ `). Recognise both.
-    """
+    """A resolved Zulip topic is prefixed with the check mark Zulip inserts
+    (U+2714 `✔ `); older/manual conventions use U+2713 (`✓ `)."""
     stripped = topic_name.lstrip()
     return stripped.startswith("✔") or stripped.startswith("✓")
+
+
+# Type alias re-export for callers that imported it from here historically.
+__all__ = ["Zulip", "ZulipError", "to_source_note", "topic_is_general", "topic_is_resolved"]
