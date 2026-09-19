@@ -1,6 +1,11 @@
 """Telegram artifact writer and sibling-state reader.
 
-Artifact schema follows https://github.com/andysmith-ai/telegram main.
+Artifact schema follows https://github.com/andysmith-ai/telegram main. The
+Telegram repo's CI publishes on push under `posts/**`, then writes a sibling
+`<slug>.state.json` and pushes it back. The publisher therefore MUST NOT mark its
+artifact commit `[skip ci]` (that would suppress the very workflow it waits on),
+and it MUST re-sync the clone before each state read so the CI-pushed state
+becomes visible locally.
 """
 
 from __future__ import annotations
@@ -89,39 +94,49 @@ class TelegramRepo:
 
     def poll_state(self, slug: str, date_iso: str,
                    timeout: int, interval: int) -> TelegramState:
-        """Poll sibling state until success, failure, or timeout."""
+        """Poll sibling state until success, failure, or timeout.
+
+        The sibling state file is produced by the Telegram repo's CI and pushed to
+        origin, so each iteration re-syncs the local clone before reading.
+        """
         deadline = time.monotonic() + timeout
         while True:
-            state = self.read_state(slug, date_iso)
-            if state is None:
+            try:
+                self.git.sync()
+            except Exception:
                 pass
-            elif state.is_success or state.is_failed:
+            state = self.read_state(slug, date_iso)
+            if state is not None and (state.is_success or state.is_failed):
                 return state
             if time.monotonic() >= deadline:
                 raise TelegramError(f"timed out waiting for Telegram state for {slug}")
             time.sleep(interval)
 
 
-def check_url_ready(url: str, timeout: int = 30) -> bool:
-    """Return True if a HEAD request returns 200 within timeout seconds."""
-    req = urllib.request.Request(url, method="HEAD")
-    req.add_header("User-Agent", "zulip-publisher/0.1.0")
+def check_url_ready(url: str, timeout: int = 30, interval: int = 5) -> bool:
+    """Return True once a GET returns 200 within timeout seconds.
+
+    The site auto-deploys after the post is pushed; a GET (not HEAD -- some static
+    hosts do not serve HEAD for fresh pages) is retried on the not-ready statuses
+    until the deadline, honouring the configured interval.
+    """
     deadline = time.monotonic() + timeout
+    interval = max(1, interval)
     while True:
         try:
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("User-Agent", "zulip-publisher/0.1.0")
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return resp.status == 200
+                if resp.status == 200:
+                    return True
         except urllib.error.HTTPError as e:
-            if e.code in (404, 503, 502, 504):
-                if time.monotonic() + 1 >= deadline:
-                    return False
-                time.sleep(1)
-                continue
-            return False
-        except Exception:
-            if time.monotonic() + 1 >= deadline:
+            if e.code not in (404, 425, 502, 503, 504):
                 return False
-            time.sleep(1)
+        except Exception:
+            pass
+        if time.monotonic() + interval >= deadline:
+            return False
+        time.sleep(interval)
 
 
 def parse_artifact(text: str) -> tuple[dict, str]:

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+import base64
 import json
-import ssl
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -94,8 +93,32 @@ class Zulip:
         msgs = self.get_messages(stream_id, topic_name, anchor="oldest", num_after=1)
         return msgs[0] if msgs else None
 
+    def get_message(self, message_id: int) -> ZulipMessage | None:
+        data = self._request("GET", f"/json/messages/{message_id}?apply_markdown=false")
+        return data.get("message")
+
     def source_url(self, stream_id: int, topic_name: str, message_id: int) -> str:
-        return f"{self.url}/#narrow/channel/{stream_id}-{urllib.parse.quote(topic_name, safe='')}/near/{message_id}"
+        return (f"{self.url}/#narrow/channel/{stream_id}-"
+                f"{urllib.parse.quote(topic_name, safe='')}/near/{message_id}")
+
+    def source_key_for_message(self, message_id: int) -> str | None:
+        """Map any message id (possibly a reply) to its topic's Source Note key.
+
+        Internal Note Links use a `near/<id>` that may target a reply. The Source
+        Note is the FIRST message of that message's topic, so resolve the message
+        to its stream/topic, then to that topic's first message.
+        """
+        msg = self.get_message(message_id)
+        if not msg:
+            return None
+        stream_id = msg.get("stream_id")
+        topic_name = msg.get("subject")
+        if stream_id is None or topic_name is None:
+            return None
+        first = self.first_message(stream_id, topic_name)
+        if not first:
+            return None
+        return f"zulip:{stream_id}:{first['id']}"
 
     def user_timezone(self, user_id: int | None = None, email: str | None = None) -> str | None:
         """Return the user's IANA timezone, or None."""
@@ -107,6 +130,28 @@ class Zulip:
             return None
         user = data.get("user") or {}
         return user.get("timezone") or None
+
+    def download(self, url: str) -> bytes:
+        """Download a (possibly private) upload, authenticating same-host fetches.
+
+        Zulip `/user_uploads/` URLs are private: a relative path is joined to the
+        realm host and same-host requests carry the bot's Basic credentials so
+        private images/attachments can be read. Cross-host URLs are fetched
+        anonymously.
+        """
+        if url.startswith("/"):
+            url = f"{self.url}{url}"
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "zulip-publisher/0.1.0")
+        if urllib.parse.urlsplit(url).netloc == urllib.parse.urlsplit(self.url).netloc:
+            token = base64.b64encode(
+                f"{self.api_username}:{self.api_key}".encode("utf-8")).decode("ascii")
+            req.add_header("Authorization", f"Basic {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            raise ZulipError(f"download {url} -> HTTP {e.code}") from None
 
     def add_reaction(self, message_id: int, emoji: str) -> None:
         self._request("POST", f"/json/messages/{message_id}/reactions",
@@ -185,4 +230,10 @@ def topic_is_general(topic_name: str, general_name: str) -> bool:
 
 
 def topic_is_resolved(topic_name: str) -> bool:
-    return topic_name.startswith("✓ ") or "✓" in topic_name[:3]
+    """A resolved Zulip topic is prefixed with the check mark Zulip inserts.
+
+    Zulip's "Resolve topic" prepends U+2714 (`✔ `); older/manual conventions use
+    U+2713 (`✓ `). Recognise both.
+    """
+    stripped = topic_name.lstrip()
+    return stripped.startswith("✔") or stripped.startswith("✓")
