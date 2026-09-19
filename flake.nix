@@ -68,8 +68,15 @@
             name = "zulip-publisher-sandbox";
             runtimeInputs = [ pkgs.secretspec pkgs.nix pkgs.coreutils pkgs.gzip ];
             text = ''
-              if ! command -v msb >/dev/null 2>&1; then
-                echo "microsandbox (msb) not found on PATH; install it first" >&2
+              # msb is installed outside Nix (e.g. ~/.microsandbox/bin), which may
+              # not be on PATH under `nix run`; resolve it from the usual spots.
+              msb=$(command -v msb || true)
+              for p in "$HOME/.local/bin/msb" "$HOME/.microsandbox/bin/msb"; do
+                [ -n "$msb" ] && break
+                [ -x "$p" ] && msb="$p"
+              done
+              if [ -z "$msb" ]; then
+                echo "microsandbox (msb) not found (PATH, ~/.local/bin, ~/.microsandbox/bin)" >&2
                 exit 127
               fi
               # Resolve secrets once via SecretSpec, then re-enter with them in env.
@@ -79,7 +86,7 @@
 
               echo "building local image (linux)..." >&2
               tar=$(nix build "${self}#image" --no-link --print-out-paths)
-              gunzip -c "$tar" | msb load -q -t zulip-publisher:latest
+              gunzip -c "$tar" | "$msb" load -q -t zulip-publisher:latest
 
               # The explicit input surface: secrets + non-secret PUBLISHER_* config.
               secrets=(ZULIP_URL ZULIP_API_KEY ZULIP_API_USERNAME \
@@ -98,7 +105,7 @@
               printf '%s\n' "''${envargs[@]}" | grep -q 'PUBLISHER_TELEGRAM_CLONE_DIR=' \
                 || envargs+=( -e PUBLISHER_TELEGRAM_CLONE_DIR=/tmp/telegram )
 
-              exec msb run --no-tty "''${envargs[@]}" \
+              exec "$msb" run --no-tty "''${envargs[@]}" \
                 zulip-publisher:latest -- "''${@:-once}"
             '';
           };
