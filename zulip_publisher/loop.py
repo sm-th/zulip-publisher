@@ -109,6 +109,8 @@ class Loop:
                     # message/reaction arrives. Process events immediately; re-scan
                     # the backlog only every poll_interval so held candidates retry.
                     events, last_event_id = self.zulip_client.get_events(queue_id, last_event_id)
+                    if events:
+                        log(f"{len(events)} event(s) received")
                     if events or (time.monotonic() - last_scan) >= self.cfg.poll_interval:
                         self.run_once()
                         last_scan = time.monotonic()
