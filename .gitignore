@@ -1,0 +1,25 @@
+# Local configuration and secrets
+zulip_publisher.toml
+.env
+.env.local
+
+# Runtime state
+*.log
+publisher.log
+
+# Clones (machine-specific paths)
+*-clone/
+site/
+telegram/
+
+# Python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Nix
+.direnv/
+result
+result-*

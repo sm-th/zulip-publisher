@@ -1,0 +1,48 @@
+# Zulip publisher configuration. Copy to zulip_publisher.toml and fill in.
+# Secrets come from the environment only (.env or SecretSpec). Everything below
+# is structure. Every key is also overridable by a PUBLISHER_* env var.
+
+# --- Zulip source ---
+zulip_stream = "blog"            # stream to publish from
+zulip_general_topic = "general"  # topic name to skip (case-insensitive)
+publisher_bot_name = "Publisher" # display name of the dedicated bot
+
+# --- preparation interface ---
+prepare_policy = "faithful-en-v1"
+prepare_format = "markdown"
+
+# --- website repo (git over SSH) ---
+site_repo_url = "git@github.com:you/your-site.git"
+site_clone_dir = "~/zulip-site"
+site_branch = "main"
+site_posts_subdir = "src"       # posts live under <clone>/<subdir>/YYYY/Mon/D/<slug>/
+site_url = "https://example.com"
+
+# --- Telegram repo (git over SSH) ---
+telegram_repo_url = "git@github.com:you/telegram.git"
+telegram_clone_dir = "~/telegram"
+telegram_branch = "main"
+telegram_posts_subdir = "posts"
+telegram_username = "your_channel"  # channel username for t.me links
+
+# --- image store (R2) ---
+r2_endpoint = "https://<account>.r2.cloudflarestorage.com"
+r2_bucket = ""
+image_media_host = "https://files.example.com"
+image_prefix = "img"
+
+# --- git identity + signing (SSH) ---
+ssh_key = "~/.ssh/id_ed25519"
+git_user_name = "Publisher"
+git_user_email = "publisher@example.com"
+git_sign = true
+git_signing_key = "~/.ssh/id_ed25519.pub"
+allowed_signers = "~/.ssh/allowed_signers"
+
+# --- behaviour ---
+author_timezone_fallback = "America/Los_Angeles"
+poll_interval = 60
+site_ready_timeout = 300
+site_ready_interval = 5
+telegram_state_timeout = 300
+telegram_state_interval = 5
