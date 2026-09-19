@@ -1,6 +1,12 @@
 """Turn a prepared document into a website edition.
 
 Reuses the proven behaviour of ~/reference/11ty-publisher/eleventy_publisher/render.py.
+
+The website post frontmatter is deliberately minimal: `title`, `type`, an
+optional `link` for link posts, and the author-local `date` (an offset-bearing
+ISO instant, so the offset itself carries the author's timezone). The publisher
+never invents a description or tags, and it never writes bookkeeping fields
+(source key, Telegram URL) into the public post -- that lives in a Receipt.
 """
 
 from __future__ import annotations
@@ -20,7 +26,6 @@ _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 _FM = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _H1 = re.compile(r"^\s*#\s+(.+?)\s*#*\s*$")
 _HEADING_NORM = re.compile(r"[^a-z0-9]+")
-_TAG_SEP = re.compile(r"[^a-z0-9]+")
 _URL_ONLY = re.compile(r"^https?://\S+$")
 
 
@@ -84,18 +89,6 @@ def strip_title_heading(body: str, title: str) -> str:
     return body
 
 
-def normalize_tags(raw: list[str]) -> list[str]:
-    """Normalize only the FORM of model-proposed tags (lowercase, kebab-case,
-    no duplicates), preserving order."""
-    out, seen = [], set()
-    for t in raw:
-        n = _TAG_SEP.sub("-", t.lower()).strip("-")
-        if n and n not in seen:
-            seen.add(n)
-            out.append(n)
-    return out
-
-
 def split_link(body: str) -> tuple[str | None, str]:
     """Detect a link post. If the FIRST non-empty line of the note is a bare URL,
     return (url, rest). Otherwise (None, body)."""
@@ -144,24 +137,21 @@ def _yaml_scalar(s: str) -> str:
 
 
 def build_post(fm: dict, body: str, date_iso: str,
-               post_type: str = "post", link: str | None = None,
-               source_key: str | None = None,
-               telegram_url: str | None = None) -> str:
-    """Assemble the final index.md."""
+               post_type: str = "post", link: str | None = None) -> str:
+    """Assemble the public website `index.md`.
+
+    Frontmatter is intentionally minimal and public: `title`, `type`, optional
+    `link`, and the author-local `date`. Never `source`, `telegram_url`,
+    `description`, or `tags` -- the publisher adds no generated metadata and keeps
+    its bookkeeping in a Receipt, not in the post.
+    """
+    if post_type == "link" and not link:
+        raise RenderError("link post has no link URL")
     lines = ["---"]
     lines.append(f"title: {_yaml_scalar(fm.get('title', 'Untitled'))}")
-    if fm.get("description"):
-        lines.append(f"description: {_yaml_scalar(fm['description'])}")
     lines.append(f"type: {post_type}")
     if link:
         lines.append(f"link: {link}")
-    if source_key:
-        lines.append(f"source: {source_key}")
-    if telegram_url:
-        lines.append(f"telegram_url: {telegram_url}")
-    tags = normalize_tags(fm.get("tags") or [])
-    if tags:
-        lines.append(f"tags: {tags}")
     lines.append(f"date: {date_iso}")
     lines.append("---")
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
