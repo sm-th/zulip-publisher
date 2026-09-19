@@ -71,10 +71,13 @@ class Loop:
 
     def run_once(self) -> None:
         if not self.cfg.dry_run:
+            log("syncing website clone...")
             self.site_repo.ensure_clone()
             self.site_repo.sync()
+            log("syncing Telegram clone...")
             self.telegram_repo.git.ensure_clone()
             self.telegram_repo.git.sync()
+            log("scanning candidates...")
         recs = self.receipt_store.scan()
         candidates = self.candidates()
         log(f"found {len(candidates)} candidate(s)")
