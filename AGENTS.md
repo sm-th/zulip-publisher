@@ -75,6 +75,8 @@ python -m zulip_publisher once        one pass, then exit
 python -m zulip_publisher publish <id>  process one candidate now
 python -m zulip_publisher show <id>     read-only candidate preview
 PUBLISHER_DRY_RUN=1                   translate and print, no writes
+nix run .#debug   -- once            secretspec secrets + Python dev mode
+nix run .#sandbox -- once            run inside a Microsandbox microVM
 ```
 
 ## Leading words
